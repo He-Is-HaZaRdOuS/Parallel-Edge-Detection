@@ -1,9 +1,16 @@
-# 342pr1
-Placeholder repository for CENG342's first project. </br>
-https://github.com/He-Is-HaZaRdOuS/342pr1 </br>
+# Parallel Sobel Edge Detector
+This is the combination of [342pr1](https://github.com/He-Is-HaZaRdOuS/342pr1) and [342pr2](https://github.com/He-Is-HaZaRdOuS/342pr2) codebases. </br> </br>
 
 # About
-This project aims to use MPI to speed up image processing algorithms, specifically focusing on edge detection.
+This project aims to use MPI, OpenMP and CUDA to speed up image processing algorithms, specifically focusing on edge detection.
+All the executables produce the same image pixel-wise.
+
+# Screenshots
+### Reference Image
+![Alt](res/papagan.jpg)
+
+### Processed Image
+![Alt](cuda_output/cuda.jpg)
 
 # Disclaimer!
 CMake does not recognize non-english characters in the build path. </br>
@@ -29,7 +36,7 @@ Open a terminal window and execute the following commands line by line </br>
  wget https://cmake.org/files/v$version/cmake-$version.$build-$os-x86_64.sh
  sudo mkdir /opt/cmake
  sudo sh cmake-$version.$build-$os-x86_64.sh --prefix=/opt/cmake #(Type "y" to accept the license agreement and type "n" to forego installing inside the subdirectory)
- cmake --version #(expected output is "cmake version 3.28.1") 
+ cmake --version #(expected output is "cmake version 3.28.1")
 ```
 
 ## Installing MPI
@@ -38,6 +45,12 @@ Install OpenMPI from your distribution's package manager
 
 ##### Option 2
 https://docs.open-mpi.org/en/v5.0.x/installing-open-mpi/quickstart.html
+
+## Installing OpenMP
+A recent version of gcc/g++ from your distribution's package manager should suffice
+
+## Installing CUDA
+https://docs.nvidia.com/cuda/cuda-installation-guide-linux/
 
 ## Compilation
 open a terminal window and cd into the project folder </br>
@@ -66,14 +79,24 @@ To run the sequential executable, open a terminal window and type </br>
 ```bash
 ./sequential <INPUT> <OUTPUT>
 ```
-To run the parallel executable, open a terminal window and type </br>
+To run the parallel MPI executable, open a terminal window and type </br>
 ```bash
-mpirun -n <N> ./parallel <INPUT> <OUTPUT> <SEQUENTIAL_INPUT>
+mpirun -n <THREAD_COUNT> ./mpi <INPUT> <OUTPUT> <ALTERNATE_SEQUENTIAL_OUTPUT>
+```
+
+To run the parallel OMP executable, open a terminal window and type </br>
+```bash
+./omp <INPUT> <OUTPUT> <THREAD_COUNT> <ALTERNATE_SEQUENTIAL_OUTPUT>
+```
+To run the parallel CUDA executable, open a terminal window and type </br>
+```bash
+./cuda <INPUT> <OUTPUT> <SP_THREADS_PER_BLK> <ALTERNATE_SEQUENTIAL_OUTPUT>
 ```
 
 The following explains the arguments and their format.
-* N: Number of cores to allocate to the program
 * INPUT: Name of input image file
 * OUTPUT: Name of output image file
-* SEQUENTIAL_INPUT: Name of the output image file from the sequential program
+* ALTERNATE_SEQUENTIAL_OUTPUT: Name of the output image file from the sequential program
+* THREAD_COUNT: Number of cores/threads to allocate to the program
+* SP_THREADS_PER_BLK: Number of SP threads to allocate to each SP Block (CUDA Only)
 </br>

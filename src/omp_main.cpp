@@ -1,4 +1,6 @@
+#include "omp.h"
 #include "timer.hpp"
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -17,14 +19,17 @@
 // Do not use global variables
 
 /* Function prototypes */
-void seq_edgeDetection(uint8_t *input_image, int width, int height);
+void seq_edgeDetection(uint8_t *input_image, int width, int height,
+                       int threadCount);
 float convolve(float slider[KERNEL_DIMENSION][KERNEL_DIMENSION],
                float kernel[KERNEL_DIMENSION][KERNEL_DIMENSION]);
 
 int main(int argc, char *argv[]) {
   /* Abort if # of CLA is invalid */
-  if (argc != 3) {
-    std::cerr << "Invalid number of arguments, aborting...";
+  if (argc != 5) {
+    std::cerr << "Invalid number of arguments, aborting...\n";
+    std::cerr << "Try ./omp <input.jpg> <output.jpg> <threadCount> "
+                 "<sequential.jpg>\n";
     exit(1);
   }
 
@@ -32,9 +37,16 @@ int main(int argc, char *argv[]) {
 
   /* Prepend path to input and output filenames */
   std::string inputPath = RESOURCES_PATH;
-  std::string outputPath = SEQUENTIAL_OUTPUT_PATH;
+  std::string outputPath = OMP_OUTPUT_PATH;
   inputPath = inputPath + argv[1];
   outputPath = outputPath + argv[2];
+  int threadCount = std::stoi(argv[3]);
+  if (threadCount <= 0) {
+    std::cerr << "Invalid argument provided, aborting...\n";
+    std::cerr << "Argument <threadCount> should be a positive integer bigger "
+                 "than 0\n";
+    exit(1);
+  }
 
   /* Read image in grayscale */
   uint8_t *input_image =
@@ -52,7 +64,7 @@ int main(int argc, char *argv[]) {
   /* Start the timer */
   Timer t;
 
-  seq_edgeDetection(input_image, width, height);
+  seq_edgeDetection(input_image, width, height, threadCount);
 
   /* Stop the timer */
   double elapsedTime = t.Stop();
@@ -63,12 +75,66 @@ int main(int argc, char *argv[]) {
                  100);
   stbi_image_free(input_image);
 
+  /* Check if the two image outputs are identical */
+  {
+    /* Prepend path to input and output filenames */
+    std::string alt_input = SEQUENTIAL_OUTPUT_PATH;
+    std::string par_input = OMP_OUTPUT_PATH;
+    alt_input = alt_input + argv[4];
+    par_input = par_input + argv[2];
+    uint8_t *alt_img, *par_img;
+    int seq_width, seq_height, seq_bpp;
+    int par_width, par_height, par_bpp;
+
+    /* Read image in grayscale */
+    alt_img = stbi_load(alt_input.c_str(), &seq_width, &seq_height, &seq_bpp,
+                        CHANNEL_NUM);
+
+    /* If image could not be opened, Abort */
+    if (stbi_failure_reason()) {
+      std::cerr << stbi_failure_reason() << " \"" + alt_input + "\"\n";
+      std::cerr << "Aborting...\n";
+      exit(1);
+    }
+
+    par_img = stbi_load(par_input.c_str(), &par_width, &par_height, &par_bpp,
+                        CHANNEL_NUM);
+
+    /* If image could not be opened, Abort */
+    if (stbi_failure_reason()) {
+      std::cerr << stbi_failure_reason() << " \"" + par_input + "\"\n";
+      std::cerr << "Aborting...\n";
+      stbi_image_free(alt_img);
+      exit(1);
+    }
+
+    std::cout << "Comparing " << alt_input << " and " << par_input << std::endl;
+
+    /* Make sure Local and Alternate outputs are the same */
+    int err_cnt = 0;
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        if (par_img[x + y * width] != alt_img[x + y * width]) {
+          ++err_cnt;
+        }
+      }
+    }
+    if (err_cnt == 0)
+      std::cout << "OMP and Sequential images are identical\n";
+    else
+      std::cout << err_cnt << " pixels are mismatched\n";
+
+    /* Let go of STB image buffers */
+    stbi_image_free(alt_img);
+    stbi_image_free(par_img);
+  }
+
   return 0;
 }
 
 /* Apply Sobel's Operator  */
-void seq_edgeDetection(uint8_t *input_image, const int width,
-                       const int height) {
+void seq_edgeDetection(uint8_t *input_image, const int width, const int height,
+                       const int threadCount) {
   /* Declare Kernels */
   float sobelX[KERNEL_DIMENSION][KERNEL_DIMENSION] = {
       {-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
@@ -80,14 +146,20 @@ void seq_edgeDetection(uint8_t *input_image, const int width,
   uint8_t *output_image = static_cast<uint8_t *>(
       malloc(width * height * sizeof(uint8_t))); // NOLINT(*-use-auto)
 
-  /* Iterate through all pixels */
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      for (int wy = 0; wy < KERNEL_DIMENSION; ++wy) {
-        for (int wx = 0; wx < KERNEL_DIMENSION; ++wx) {
-          int xIndex = (x + wx - 1);
-          int yIndex = (y + wy - 1);
-          /* Duplicate opposite edge values if on barrier pixels */
+  /* Declare vars ahead of time to privatize later */
+  int xIndex, yIndex, x, y, wx, wy;
+
+/* Iterate through all pixels */
+#pragma omp parallel for collapse(2) private(                                  \
+        x, wy, wx, xIndex, yIndex, slider) num_threads(threadCount)
+  for (y = 0; y < height; ++y) {
+    for (x = 0; x < width; ++x) {
+      for (wy = 0; wy < KERNEL_DIMENSION; ++wy) {
+        for (wx = 0; wx < KERNEL_DIMENSION; ++wx) {
+          xIndex = (x + wx - 1);
+          yIndex = (y + wy - 1);
+
+          /* Clamp */
           if (xIndex < 0)
             xIndex = -xIndex;
           if (yIndex < 0)
@@ -105,11 +177,11 @@ void seq_edgeDetection(uint8_t *input_image, const int width,
       /* Convolve sliding window with kernels (Sobel X and Y gradient) */
       const float gx = convolve(slider, sobelX);
       const float gy = convolve(slider, sobelY);
-      float magnitude = sqrt(gx * gx + gy * gy);
+      float magnitude = sqrtf(gx * gx + gy * gy);
 
 #if USE_THRESHOLD
       /* Clamp down color values if below THRESHOLD */
-      output_image_u8[x + y * width] = magnitude > THRESHOLD ? 255 : 0;
+      output_image[x + y * width] = magnitude > THRESHOLD ? 255 : 0;
 #else
       /* Otherwise use whatever value outputted from square root */
       output_image[x + y * width] = static_cast<uint8_t>(magnitude);
